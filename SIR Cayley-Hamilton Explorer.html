@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SIR Transition Matrix: Cayley-Hamilton Explorer</title>
+<style>
+:root{--bg:#f3f6f7;--card:#fff;--ink:#14232b;--mut:#5c6f78;--line:#d6dfe3;--S:#2b6cb0;--I:#c8372d;--R:#2f8a5b;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1a20;--card:#17252d;--ink:#e6eef1;--mut:#93a7b0;--line:#2a3d47;--S:#6aa8ec;--I:#f07468;--R:#5fc994}}
+:root[data-theme="dark"]{--bg:#0f1a20;--card:#17252d;--ink:#e6eef1;--mut:#93a7b0;--line:#2a3d47;--S:#6aa8ec;--I:#f07468;--R:#5fc994}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:920px;margin:0 auto;padding:20px 16px 40px}
+h1{font:600 clamp(26px,5vw,38px)/1.15 Georgia,"Iowan Old Style",serif;margin:0 0 6px}
+h2{font:600 18px Georgia,serif;margin:0 0 10px}
+.sub{color:var(--mut);margin:0 0 20px;max-width:62ch}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:700px){.grid{grid-template-columns:1fr}}
+.ctl{display:grid;grid-template-columns:1fr auto;align-items:center;margin-bottom:10px}
+.ctl label{font-size:14px}.ctl output{font-variant-numeric:tabular-nums;font-weight:600}
+.ctl input{grid-column:1/3;width:100%;accent-color:var(--I)}
+svg{width:100%;height:auto;display:block}
+.leg{display:flex;gap:16px;font-size:14px;margin-top:6px;flex-wrap:wrap}
+.leg i{display:inline-block;width:12px;height:3px;margin-right:6px;vertical-align:middle}
+table{border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
+td,th{padding:3px 10px;text-align:right}
+.scroll{overflow-x:auto}
+.big{display:flex;gap:10px}
+.big div{flex:1;border-left:4px solid;padding-left:10px}
+.big b{display:block;font-size:26px;font-variant-numeric:tabular-nums}
+.big span{font-size:13px;color:var(--mut)}
+code,.mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+.ok{color:var(--R);font-weight:600}
+p{margin:6px 0}
+</style>
+</head>
+<body>
+<main>
+<h1>Where will the epidemic be in a year?</h1>
+<p class="sub">Each week, people move between Susceptible, Infected and Recovered. Set the weekly rates and see the state at week n, computed with the Cayley-Hamilton theorem and checked against brute-force multiplication.</p>
+
+<div class="grid">
+  <section class="card">
+    <h2>Weekly rates</h2>
+    <div class="ctl"><label for="psi">Infection, S→I</label><output id="o_psi"></output><input id="psi" type="range" min="0.01" max="0.9" step="0.01" value="0.10"></div>
+    <div class="ctl"><label for="pir">Recovery, I→R</label><output id="o_pir"></output><input id="pir" type="range" min="0.01" max="0.9" step="0.01" value="0.30"></div>
+    <div class="ctl"><label for="prs">Loss of immunity, R→S</label><output id="o_prs"></output><input id="prs" type="range" min="0.01" max="0.9" step="0.01" value="0.05"></div>
+    <div class="ctl"><label for="i0">Initially infected (week 0)</label><output id="o_i0"></output><input id="i0" type="range" min="0.01" max="0.5" step="0.01" value="0.05"></div>
+    <div class="ctl"><label for="n">Weeks to project, n</label><output id="o_n"></output><input id="n" type="range" min="3" max="104" step="1" value="52"></div>
+  </section>
+  <section class="card">
+    <h2>State at week <span id="nn"></span></h2>
+    <div class="big" id="state"></div>
+    <h2 style="margin-top:18px">Steady state</h2>
+    <div class="big" id="steady"></div>
+    <p class="sub" style="margin-top:10px;font-size:14px">Eigenvector for λ = 1. Balance requires S·p<sub>SI</sub> = I·p<sub>IR</sub> = R·p<sub>RS</sub>.</p>
+  </section>
+</div>
+
+<section class="card">
+  <h2>Weekly evolution</h2>
+  <svg id="chart" viewBox="0 0 640 280" role="img" aria-label="Line chart of S, I and R fractions by week"></svg>
+  <div class="leg"><span><i style="background:var(--S)"></i>Susceptible</span><span><i style="background:var(--I)"></i>Infected</span><span><i style="background:var(--R)"></i>Recovered</span><span id="peak"></span></div>
+</section>
+
+<section class="card">
+  <h2>Cayley-Hamilton check</h2>
+  <p class="mono" id="charpoly"></p>
+  <p class="mono" id="eig"></p>
+  <p class="mono" id="alpha"></p>
+  <p style="margin-top:12px">A<sup>n</sup> = α₂A² + α₁A + α₀I</p>
+  <div class="scroll"><table id="mat"></table></div>
+  <p id="cmp" style="margin-top:10px"></p>
+</section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const ids=['psi','pir','prs','i0','n'];
+const f=(x,d=4)=>x.toFixed(d);
+function mul(X,Y){const Z=[[0,0,0],[0,0,0],[0,0,0]];for(let i=0;i<3;i++)for(let j=0;j<3;j++)for(let k=0;k<3;k++)Z[i][j]+=X[i][k]*Y[k][j];return Z}
+function mv(X,v){return X.map(r=>r[0]*v[0]+r[1]*v[1]+r[2]*v[2])}
+function directPow(A,n){let P=[[1,0,0],[0,1,0],[0,0,1]];for(let i=0;i<n;i++)P=mul(P,A);return P}
+function charPoly(A){
+  const c2=A[0][0]+A[1][1]+A[2][2];
+  const c1=(A[0][0]*A[1][1]-A[0][1]*A[1][0])+(A[0][0]*A[2][2]-A[0][2]*A[2][0])+(A[1][1]*A[2][2]-A[1][2]*A[2][1]);
+  const c0=A[0][0]*(A[1][1]*A[2][2]-A[1][2]*A[2][1])-A[0][1]*(A[1][0]*A[2][2]-A[1][2]*A[2][0])+A[0][2]*(A[1][0]*A[2][1]-A[1][1]*A[2][0]);
+  return {c2,c1,c0}; // p(λ)=λ³-c2λ²+c1λ-c0
+}
+// λ^n mod p(λ) -> [α0,α1,α2]
+function remainder(n,{c2,c1,c0}){
+  let a=[1,0,0];
+  for(let k=0;k<n;k++){const [a0,a1,a2]=a;a=[c0*a2,a0-c1*a2,a1+c2*a2]}
+  return a;
+}
+function chPow(A,n,cp){
+  const [a0,a1,a2]=remainder(n,cp);
+  const A2=mul(A,A),I=[[1,0,0],[0,1,0],[0,0,1]];
+  return I.map((_,i)=>[0,1,2].map(j=>a2*A2[i][j]+a1*A[i][j]+a0*I[i][j]));
+}
+function eigs(cp){ // (λ-1)(λ²+bλ+c)
+  const b=1-cp.c2,c=cp.c1+1-cp.c2,d=b*b-4*c;
+  if(d>=0){const s=Math.sqrt(d);return [`1`,f((-b+s)/2),f((-b-s)/2)]}
+  const s=Math.sqrt(-d)/2;return [`1`,`${f(-b/2)} + ${f(s)}i`,`${f(-b/2)} − ${f(s)}i`];
+}
+function run(){
+  const [psi,pir,prs,i0,n]=ids.map(i=>+$(i).value);
+  ids.forEach((id,k)=>{$('o_'+id).textContent=id==='n'?n:f([psi,pir,prs,i0][k],2)});
+  $('nn').textContent=n;
+  const A=[[1-psi,0,prs],[psi,1-pir,0],[0,pir,1-prs]];
+  const x0=[1-i0,i0,0];
+  const cp=charPoly(A);
+  // evolution
+  const xs=[x0];for(let k=1;k<=Math.max(n,52);k++)xs.push(mv(A,xs[k-1]));
+  const An=chPow(A,n,cp),Ad=directPow(A,n);
+  const xn=mv(An,x0);
+  const col=['S','I','R'],nm=['Susceptible','Infected','Recovered'];
+  $('state').innerHTML=xn.map((v,i)=>`<div style="border-color:var(--${col[i]})"><b>${f(v*100,1)}%</b><span>${nm[i]}</span></div>`).join('');
+  const w=[1/psi,1/pir,1/prs],t=w[0]+w[1]+w[2],ss=w.map(v=>v/t);
+  $('steady').innerHTML=ss.map((v,i)=>`<div style="border-color:var(--${col[i]})"><b>${f(v*100,1)}%</b><span>${nm[i]}</span></div>`).join('');
+  // chart
+  const W=640,H=280,L=40,B=28,T=10,Rr=10,N=xs.length-1;
+  const X=k=>L+k/N*(W-L-Rr),Y=v=>T+(1-v)*(H-T-B);
+  let s='';
+  for(let g=0;g<=4;g++){const v=g/4;s+=`<line x1="${L}" x2="${W-Rr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L-6}" y="${Y(v)+4}" text-anchor="end" font-size="11" fill="var(--mut)">${v*100}%</text>`}
+  for(let k=0;k<=N;k+=N>60?13:(N>30?13:13)){s+=`<text x="${X(k)}" y="${H-8}" text-anchor="middle" font-size="11" fill="var(--mut)">${k}</text>`}
+  s+=`<text x="${W-Rr}" y="${H-8}" text-anchor="end" font-size="11" fill="var(--mut)">week</text>`;
+  [0,1,2].forEach(i=>{s+=`<polyline fill="none" stroke="var(--${col[i]})" stroke-width="2.5" points="${xs.map((x,k)=>X(k)+','+Y(x[i])).join(' ')}"/>`});
+  s+=`<line x1="${X(n)}" x2="${X(n)}" y1="${T}" y2="${H-B}" stroke="var(--mut)" stroke-dasharray="4 4"/>`;
+  [0,1,2].forEach(i=>{s+=`<line x1="${W-Rr-30}" x2="${W-Rr}" y1="${Y(ss[i])}" y2="${Y(ss[i])}" stroke="var(--${col[i]})" stroke-dasharray="2 3" opacity=".7"/>`});
+  $('chart').innerHTML=s;
+  let pk=0;xs.forEach((x,k)=>{if(x[1]>xs[pk][1])pk=k});
+  $('peak').textContent=`Infection peaks at week ${pk} (${f(xs[pk][1]*100,1)}%). Dashed marker: week ${n}.`;
+  // verification
+  $('charpoly').textContent=`p(λ) = λ³ − ${f(cp.c2)}λ² + ${f(cp.c1)}λ − ${f(cp.c0)}`;
+  $('eig').textContent=`eigenvalues: ${eigs(cp).join(',  ')}`;
+  const al=remainder(n,cp);
+  $('alpha').textContent=`α₀ = ${al[0].toExponential(4)},  α₁ = ${al[1].toExponential(4)},  α₂ = ${al[2].toExponential(4)}`;
+  $('mat').innerHTML=`<tr><th></th><th>Cayley-Hamilton</th><th></th><th></th><th>Direct product</th><th></th><th></th></tr>`+
+    [0,1,2].map(i=>`<tr><td>${['S','I','R'][i]}</td>${An[i].map(v=>`<td>${f(v,6)}</td>`).join('')}${Ad[i].map(v=>`<td>${f(v,6)}</td>`).join('')}</tr>`).join('');
+  let err=0;for(let i=0;i<3;i++)for(let j=0;j<3;j++)err=Math.max(err,Math.abs(An[i][j]-Ad[i][j]));
+  const reps=2000;let t0=performance.now();for(let r=0;r<reps;r++)chPow(A,n,cp);const tc=(performance.now()-t0)/reps;
+  t0=performance.now();for(let r=0;r<reps;r++)directPow(A,n);const td=(performance.now()-t0)/reps;
+  $('cmp').innerHTML=`Max |difference|: <span class="ok">${err.toExponential(2)}</span>. Cayley-Hamilton ${(tc*1000).toFixed(1)} µs vs direct ${(td*1000).toFixed(1)} µs per A<sup>${n}</sup>. Each column of A<sup>n</sup> sums to ${f(An[0][0]+An[1][0]+An[2][0],6)}.`;
+}
+ids.forEach(i=>$(i).addEventListener('input',run));
+run();
+</script>
+</body>
+</html>
